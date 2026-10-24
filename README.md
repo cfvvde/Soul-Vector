@@ -1,36 +1,175 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# SoulVector
 
-## Getting Started
+**Поиск единомышленников через поэзию.** SoulVector — экспериментальный MVP, который анализирует стихи по смыслу, наблюдаемым особенностям рассуждения и стилю письма, а затем ищет профили с близкими текстовыми представлениями.
 
-First, run the development server:
+> **Статус:** исследовательский MVP. Индексы сходства не являются процентом психологической совместимости и не доказывают совпадение личности или мышления. Алгоритм и веса требуют проверки на независимых примерах и обратной связи пользователей.
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+## Как работает анализ
+
+Пайплайн состоит из трёх независимых компонентов:
+
+1. **Смысл и темы — Ollama `bge-m3`.** Для каждого стихотворения рассчитывается embedding размерностью 1024; вектор профиля формируется из набора стихотворений.
+2. **Наблюдаемые способы развития мысли — локальная LLM `qwen3:4b-instruct`.** Модель выдаёт структурированный профиль с 12 рубриками, кратким объяснением и фрагментами исходного текста. Это интерпретация признаков, видимых в стихах, а не достоверная оценка когнитивных способностей человека.
+3. **Стиль русского текста — Python + `pymorphy3`.** Отдельный 640-мерный стилометрический профиль включает статистические признаки, морфологию и символьные n-граммы.
+
+Текущие экспериментальные веса итогового ранжирования: **60% рассуждение, 32% смысл, 8% стиль письма**. Они являются стартовой гипотезой, а не эмпирически подобранными коэффициентами. Сравнения компонентов и тестовые пары доступны на странице `/algorithm` и через диагностические скрипты.
+
+## Возможности MVP
+
+- Добавление и редактирование 1–5 стихотворений.
+- Локальное создание семантических embeddings без передачи текстов в сторонний embedding API.
+- Структурированный анализ способов рассуждения локальной LLM.
+- Стилометрия русского языка с морфологическим анализом.
+- Хранение стихов и векторов в PostgreSQL / Supabase с расширением `pgvector`.
+- Поиск и ранжирование близких тестовых профилей.
+- Лаборатория алгоритма и диагностический отчёт по сходству профилей.
+- Автоматическое заполнение демонстрационных профилей для разработки и сравнительных тестов.
+
+## Технологический стек
+
+- Next.js App Router, React, TypeScript
+- CSS Modules
+- PostgreSQL, Supabase, `pgvector`
+- Ollama: `bge-m3` и `qwen3:4b-instruct`
+- Python 3 и `pymorphy3`
+- `pg` для доступа к PostgreSQL
+
+## Требования
+
+Перед запуском установите:
+
+- Node.js и npm (используйте актуальную LTS-версию Node.js).
+- Git.
+- Python 3 с доступным `pip`.
+- [Ollama](https://ollama.com/download).
+- PostgreSQL с расширением `pgvector` или проект Supabase.
+
+## Локальный запуск
+
+### 1. Установить зависимости JavaScript
+
+Из корня репозитория:
+
+```powershell
+npm install
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Если `tsx` ещё не включён в `devDependencies`, установите его для служебных скриптов:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```powershell
+npm install -D tsx
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+### 2. Установить Python-зависимости
 
-## Learn More
+Windows:
 
-To learn more about Next.js, take a look at the following resources:
+```powershell
+py -3 -m pip install -r scripts/requirements-morphology.txt
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Проверка:
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```powershell
+py -3 -c "import pymorphy3; print('pymorphy3 OK')"
+```
 
-## Deploy on Vercel
+Если Windows не находит Python или библиотеку, укажите в `.env.local` полный путь к `python.exe` с установленным `pymorphy3` через `PYTHON_EXECUTABLE`. Если переменная не задана, приложение на Windows пытается запускать `py -3`.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+### 3. Загрузить локальные модели
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```powershell
+ollama pull bge-m3
+ollama pull qwen3:4b-instruct
+```
+
+Убедитесь, что Ollama запущена. Проверить установленные модели можно командой `ollama list`.
+
+### 4. Настроить переменные окружения
+
+Скопируйте `.env.local.example` в `.env.local` и заполните `DATABASE_URL` данными из панели Supabase (**Connect**). Не коммитьте `.env.local` и не вставляйте пароли или API-ключи в исходники.
+
+Минимальная конфигурация:
+
+```dotenv
+DATABASE_URL=postgresql://USER:PASSWORD@HOST:5432/postgres?sslmode=require
+OLLAMA_BASE_URL=http://127.0.0.1:11434
+OLLAMA_REASONING_MODEL=qwen3:4b-instruct
+# Необязательно; если не задано, Windows использует py -3.
+# PYTHON_EXECUTABLE=C:\\Path\\To\\Python\\python.exe
+```
+
+Если пароль базы содержит специальные символы, корректно URL-кодируйте его в строке подключения. Для локальной разработки используйте отдельную тестовую базу.
+
+### 5. Настроить базу данных
+
+**Новая база:** выполните `database/soulvector.sql` в SQL Editor Supabase. Этот файл создаёт актуальную базовую схему с векторами смыслового профиля, стилометрии и рассуждений.
+
+**Существующая база, обновляемая со старой версии:** применяйте только миграции, которые ещё не запускались, и в установленном порядке: `003_russian_stylometry_v2.sql`, затем `004_russian_stylometry_v3.sql`, затем `005_reasoning_analysis.sql`. Миграции 003/004 сбрасывают старые стилометрические векторы, чтобы их пересчитали по новой схеме. Не запускайте их повторно без необходимости.
+
+После изменения схемы повторно анализируйте профили, чтобы создать соответствующие версии векторов.
+
+### 6. Запустить приложение
+
+```powershell
+npm run dev
+```
+
+Откройте `http://localhost:3000`. Если нужен доступ с другого устройства в локальной сети, используйте настроенный hostname и адрес компьютера. Не публикуйте dev-сервер в открытый интернет.
+
+## Основные маршруты
+
+- `/` — главная страница.
+- `/onboarding/poems` — добавление стихотворений и запуск анализа.
+- `/algorithm` — лаборатория весов и диагностика сходства.
+- `POST /api/analyze` — запуск трёхэтапного анализа и сохранение результатов.
+- `/api/profile` — загрузка профиля и рекомендации.
+- `/api/diagnostics` — диагностические данные для лаборатории.
+
+## Демонстрационные данные и диагностика
+
+Используйте только тестовую базу: скрипт добавляет специально помеченные demo-профили. Для повторной генерации векторов применяется `--force`, что может запускать локальный LLM-анализ повторно.
+
+```powershell
+npx tsx scripts/seed-demo.ts --confirm-demo-data
+```
+
+Для принудительного пересчёта демонстрационных профилей:
+
+```powershell
+npx tsx scripts/seed-demo.ts --confirm-demo-data --force
+```
+
+Отчёт по сходству ранее рассчитанных профилей без повторного анализа:
+
+```powershell
+npx tsx scripts/report-demo-similarity.ts
+```
+
+Проверка модуля стилометрии:
+
+```powershell
+npx tsx scripts/check-stylometry.ts
+```
+
+## Безопасность и ограничения
+
+- Не добавляйте в Git `.env.local`, пароли Supabase, API-ключи, дампы базы и личные стихотворения.
+- В текущем MVP полноценная аутентификация пользователей ещё не реализована; ID профиля на клиенте не заменяет проверенную серверную сессию. Не используйте приложение для публичного хранения приватных текстов без дополнительной авторизации и контроля доступа.
+- Стихотворение может отражать роль, жанр или художественный приём. Система оценивает только признаки в тексте, а не «истинную личность» автора.
+- Веса 60/32/8 и числовые similarity score экспериментальные. Они не являются процентом совместимости.
+- Перед production-развёртыванием добавьте полноценную аутентификацию, проверку владельца каждого профиля на сервере, rate limiting, защиту от злоупотреблений и обработку удаления личных данных.
+
+## План развития
+
+- [x] Локальные embeddings и векторный поиск.
+- [x] Русская стилометрия и начальный анализ рассуждений.
+- [x] Диагностическая лаборатория и demo seed-скрипт.
+- [ ] Оценка качества на независимом корпусе и сбор человеческих оценок совпадений.
+- [ ] Регистрация, вход и безопасное управление профилями.
+- [ ] Улучшение объяснений совпадений и проверка полезности рекомендаций в тестовой группе.
+- [ ] Поддержка взаимного интереса и общения.
+
+## Лицензия
+
+Лицензия проекта пока не выбрана. До её добавления не считайте этот репозиторий открытой лицензией на повторное использование.
